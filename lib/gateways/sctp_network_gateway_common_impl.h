@@ -26,7 +26,6 @@
 #include "srsran/srslog/logger.h"
 #include "srsran/support/io/io_broker.h"
 #include "srsran/support/io/sctp_socket.h"
-#include "srsran/support/io/sctp_socket_usr.h"
 
 struct addrinfo;
 
@@ -64,7 +63,6 @@ protected:
 
   // Creates an SCTP socket with the provided protocol.
   [[nodiscard]] expected<sctp_socket> create_socket(int ai_family, int ai_socktype) const;
-  [[nodiscard]] expected<sctp_socket_usr> create_socket_usr(int ai_family, int ai_socktype) const;
 
   bool create_and_bind_common();
 

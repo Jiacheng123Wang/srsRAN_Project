@@ -21,7 +21,6 @@
  */
 
 #include "srsran/support/io/sctp_socket_usr.h"
-#include "srsran/adt/optional.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/support/error_handling.h"
 #include "srsran/support/srsran_assert.h"
@@ -305,8 +304,7 @@ bool sctp_socket_usr::close()
   return true;
 }
 
-SRSRAN_NODISCARD bool
-sctp_socket_usr::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, const std::string& bind_interface)
+bool sctp_socket_usr::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, const std::string& bind_interface)
 {
   char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
   if (getnameinfo(&ai_addr, ai_addrlen, hbuf, sizeof(hbuf), sbuf,
@@ -342,7 +340,7 @@ sctp_socket_usr::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, con
   return true;
 }
 
-SRSRAN_NODISCARD bool sctp_socket_usr::connect(struct sockaddr& ai_addr, const socklen_t& ai_addrlen)
+bool sctp_socket_usr::connect(struct sockaddr& ai_addr, const socklen_t& ai_addrlen)
 {
   struct sockaddr_in servaddr;
   const char *name;
@@ -385,7 +383,7 @@ SRSRAN_NODISCARD bool sctp_socket_usr::connect(struct sockaddr& ai_addr, const s
   return true;
 }
 
-SRSRAN_NODISCARD bool sctp_socket_usr::listen()
+bool sctp_socket_usr::listen()
 {
   if (not is_open()) {
     logger.error("{}: Failed to listen for new SCTP connections. Cause: socket is closed", if_name);
