@@ -21,6 +21,7 @@
  */
 
 #include "srsran/support/io/sctp_socket.h"
+#include "srsran/adt/optional.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/support/error_handling.h"
 #include "srsran/support/io/sockets.h"
@@ -224,13 +225,19 @@ bool sctp_socket::close()
   return true;
 }
 
-bool sctp_socket::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, const std::string& bind_interface)
+SRSRAN_NODISCARD bool
+sctp_socket::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, const std::string& bind_interface)
 {
   if (not is_open()) {
     logger.error("Failed to bind to {}. Cause: Socket is closed", get_nameinfo(ai_addr, ai_addrlen));
     return false;
   }
 
+  char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+  if (getnameinfo(&ai_addr, ai_addrlen, hbuf, sizeof(hbuf), sbuf,
+              sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
+    printf("host=%s, serv=%s\n", hbuf, sbuf);
+  }
   if (not bind_to_interface(sock_fd, bind_interface, logger)) {
     return false;
   }
@@ -254,12 +261,18 @@ bool sctp_socket::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, co
   return true;
 }
 
-bool sctp_socket::connect(struct sockaddr& ai_addr, const socklen_t& ai_addrlen)
+SRSRAN_NODISCARD bool sctp_socket::connect(struct sockaddr& ai_addr, const socklen_t& ai_addrlen)
 {
   logger.debug("{}: Connecting to {}...", if_name, get_nameinfo(ai_addr, ai_addrlen));
   if (not is_open()) {
     logger.error("Failed to connect to {}. Cause: socket is closed", get_nameinfo(ai_addr, ai_addrlen));
     return false;
+  }
+
+  char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+  if (getnameinfo(&ai_addr, ai_addrlen, hbuf, sizeof(hbuf), sbuf,
+              sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
+    printf("host=%s, serv=%s\n", hbuf, sbuf);
   }
 
   if (::connect(sock_fd.value(), &ai_addr, ai_addrlen) == -1) {
@@ -277,7 +290,7 @@ bool sctp_socket::connect(struct sockaddr& ai_addr, const socklen_t& ai_addrlen)
   return true;
 }
 
-bool sctp_socket::listen()
+SRSRAN_NODISCARD bool sctp_socket::listen()
 {
   if (not is_open()) {
     logger.error("{}: Failed to listen for new SCTP connections. Cause: socket is closed", if_name);

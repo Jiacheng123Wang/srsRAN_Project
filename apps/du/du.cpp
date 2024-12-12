@@ -20,7 +20,42 @@
  *
  */
 
+#include "srsran/gtpu/gtpu_config.h"
+#include "srsran/support/cpu_features.h"
+#include "srsran/support/event_tracing.h"
+#include "srsran/support/signal_handling.h"
+#include "srsran/support/versioning/build_info.h"
+#include "srsran/support/versioning/version.h"
+
+#include "srsran/f1u/du/split_connector/f1u_split_connector_factory.h"
+#include "srsran/gtpu/gtpu_demux_factory.h"
+
+#include "srsran/support/io/io_broker_factory.h"
+
 #include "adapters/f1_gateways.h"
+#include "srsran/support/backtrace.h"
+#include "srsran/support/config_parsers.h"
+
+#include "du_appconfig.h"
+#include "du_appconfig_cli11_schema.h"
+#include "du_appconfig_translators.h"
+#include "du_appconfig_validators.h"
+
+#include "apps/services/worker_manager.h"
+#include "apps/units/flexible_du/split_dynamic/dynamic_du_factory.h"
+
+#include "apps/du/adapters/e2_gateways.h"
+#include "apps/services/e2/e2_metric_connector_manager.h"
+#include "srsran/e2/gateways/e2_connection_client.h"
+
+// Include ThreadSanitizer (TSAN) options if thread sanitization is enabled.
+// This include is not unused - it helps prevent false alarms from the thread sanitizer.
+#include "du_appconfig_yaml_writer.h"
+
+#include "srsran/support/tsan_options.h"
+
+#include <atomic>
+
 #include "apps/services/application_message_banners.h"
 #include "apps/services/application_tracer.h"
 #include "apps/services/buffer_pool/buffer_pool_manager.h"
@@ -28,37 +63,16 @@
 #include "apps/services/metrics/metrics_manager.h"
 #include "apps/services/metrics/metrics_notifier_proxy.h"
 #include "apps/services/stdin_command_dispatcher.h"
-#include "apps/services/worker_manager/worker_manager.h"
-#include "apps/units/flexible_o_du/flexible_o_du_application_unit.h"
-#include "apps/units/flexible_o_du/o_du_high/du_high/du_high_config.h"
-#include "apps/units/flexible_o_du/o_du_high/o_du_high_unit_pcap_factory.h"
-#include "du_appconfig.h"
-#include "du_appconfig_cli11_schema.h"
-#include "du_appconfig_translators.h"
-#include "du_appconfig_validators.h"
-#include "du_appconfig_yaml_writer.h"
+#include "apps/units/flexible_du/du_high/du_high_config.h"
+#include "apps/units/flexible_du/du_high/pcap_factory.h"
+#include "apps/units/flexible_du/flexible_du_application_unit.h"
+
 #include "srsran/du/du_power_controller.h"
-#include "srsran/e2/e2ap_config_translators.h"
-#include "srsran/e2/gateways/e2_connection_client.h"
-#include "srsran/e2/gateways/e2_network_client_factory.h"
-#include "srsran/f1u/du/split_connector/f1u_split_connector_factory.h"
-#include "srsran/gtpu/gtpu_config.h"
-#include "srsran/gtpu/gtpu_demux_factory.h"
-#include "srsran/support/backtrace.h"
-#include "srsran/support/config_parsers.h"
-#include "srsran/support/cpu_features.h"
-#include "srsran/support/io/io_broker_factory.h"
-#include "srsran/support/signal_handling.h"
-#include "srsran/support/tracing/event_tracing.h"
-#include "srsran/support/versioning/build_info.h"
-#include "srsran/support/versioning/version.h"
-#include <atomic>
+#include <usrsctp.h>
+
 #ifdef DPDK_FOUND
 #include "srsran/hal/dpdk/dpdk_eal_factory.h"
 #endif
-// Include ThreadSanitizer (TSAN) options if thread sanitization is enabled.
-// This include is not unused - it helps prevent false alarms from the thread sanitizer.
-#include "srsran/support/tsan_options.h"
 
 using namespace srsran;
 
@@ -108,7 +122,7 @@ static void initialize_log(const std::string& filename)
   srslog::init();
 }
 
-static void register_app_logs(const logger_appconfig& log_cfg, flexible_o_du_application_unit& du_app_unit)
+static void register_app_logs(const logger_appconfig& log_cfg, flexible_du_application_unit& du_app_unit)
 {
   // Set log-level of app and all non-layer specific components to app level.
   for (const auto& id : {"ALL", "SCTP-GW", "IO-EPOLL", "UDP-GW", "PCAP"}) {
@@ -128,8 +142,8 @@ static void register_app_logs(const logger_appconfig& log_cfg, flexible_o_du_app
   config_logger.set_hex_dump_max_size(log_cfg.hex_max_size);
 
   auto& metrics_logger = srslog::fetch_basic_logger("METRICS", false);
-  metrics_logger.set_level(log_cfg.metrics_level.level);
-  metrics_logger.set_hex_dump_max_size(log_cfg.metrics_level.hex_max_size);
+  metrics_logger.set_level(log_cfg.metrics_level);
+  metrics_logger.set_hex_dump_max_size(log_cfg.hex_max_size);
 
   auto& e2ap_logger = srslog::fetch_basic_logger("E2AP", false);
   e2ap_logger.set_level(log_cfg.e2ap_level);
@@ -141,6 +155,7 @@ static void register_app_logs(const logger_appconfig& log_cfg, flexible_o_du_app
 
 int main(int argc, char** argv)
 {
+  struct socket *sock;
   // Set the application error handler.
   set_error_handler(app_error_report_handler);
 
@@ -150,6 +165,11 @@ int main(int argc, char** argv)
   // Set interrupt and cleanup signal handlers.
   register_interrupt_signal_handler(interrupt_signal_handler);
   register_cleanup_signal_handler(cleanup_signal_handler);
+
+  usrsctp_init(9899, NULL, NULL);
+	if ((sock = usrsctp_socket(AF_INET, SOCK_SEQPACKET, IPPROTO_SCTP, NULL, NULL, 0, NULL)) == NULL) {
+		perror("usrsctp_socket");
+	}
 
   // Enable backtrace.
   enable_backtrace();
@@ -165,13 +185,13 @@ int main(int argc, char** argv)
   // Configure CLI11 with the DU application configuration schema.
   configure_cli11_with_du_appconfig_schema(app, du_cfg);
 
-  auto o_du_app_unit = create_flexible_o_du_application_unit("du");
-  o_du_app_unit->on_parsing_configuration_registration(app);
+  auto du_app_unit = create_flexible_du_application_unit("du");
+  du_app_unit->on_parsing_configuration_registration(app);
 
   // Set the callback for the app calling all the autoderivation functions.
-  app.callback([&app, &du_cfg, &o_du_app_unit]() {
+  app.callback([&app, &du_cfg, &du_app_unit]() {
     autoderive_du_parameters_after_parsing(app, du_cfg);
-    o_du_app_unit->on_configuration_parameters_autoderivation(app);
+    du_app_unit->on_configuration_parameters_autoderivation(app);
   });
 
   // Parse arguments.
@@ -179,22 +199,22 @@ int main(int argc, char** argv)
 
   // Check the modified configuration.
   if (!validate_appconfig(du_cfg) ||
-      !o_du_app_unit->on_configuration_validation((du_cfg.expert_execution_cfg.affinities.isolated_cpus)
-                                                      ? du_cfg.expert_execution_cfg.affinities.isolated_cpus.value()
-                                                      : os_sched_affinity_bitmask::available_cpus())) {
+      !du_app_unit->on_configuration_validation((du_cfg.expert_execution_cfg.affinities.isolated_cpus)
+                                                    ? du_cfg.expert_execution_cfg.affinities.isolated_cpus.value()
+                                                    : os_sched_affinity_bitmask::available_cpus())) {
     report_error("Invalid configuration detected.\n");
   }
 
   // Set up logging.
   initialize_log(du_cfg.log_cfg.filename);
-  register_app_logs(du_cfg.log_cfg, *o_du_app_unit);
+  register_app_logs(du_cfg.log_cfg, *du_app_unit);
 
   // Log input configuration.
   srslog::basic_logger& config_logger = srslog::fetch_basic_logger("CONFIG");
   if (config_logger.debug.enabled()) {
     YAML::Node node;
     fill_du_appconfig_in_yaml_schema(node, du_cfg);
-    o_du_app_unit->dump_config(node);
+    du_app_unit->dump_config(node);
     config_logger.debug("Input configuration (all values): \n{}", YAML::Dump(node));
   } else {
     config_logger.info("Input configuration (only non-default values): \n{}", app.config_to_str(false, false));
@@ -245,7 +265,7 @@ int main(int argc, char** argv)
 
   // Instantiate worker manager.
   worker_manager_config worker_manager_cfg;
-  o_du_app_unit->fill_worker_manager_config(worker_manager_cfg);
+  du_app_unit->fill_worker_manager_config(worker_manager_cfg);
   fill_du_worker_manager_config(worker_manager_cfg, du_cfg);
 
   worker_manager workers{worker_manager_cfg};
@@ -257,7 +277,7 @@ int main(int argc, char** argv)
   io_broker_config           io_broker_cfg(low_prio_cpu_mask);
   std::unique_ptr<io_broker> epoll_broker = create_io_broker(io_broker_type::epoll, io_broker_cfg);
 
-  flexible_o_du_pcaps du_pcaps = create_o_du_pcaps(o_du_app_unit->get_o_du_high_unit_config(), workers);
+  flexible_du_pcaps du_pcaps = create_du_pcaps(du_app_unit->get_du_high_unit_config().pcaps, workers);
 
   // Instantiate F1-C client gateway.
   std::unique_ptr<srs_du::f1c_connection_client> f1c_gw = create_f1c_client_gateway(
@@ -289,11 +309,11 @@ int main(int argc, char** argv)
       srslog::fetch_udp_sink(du_cfg.metrics_cfg.addr, du_cfg.metrics_cfg.port, srslog::create_json_formatter());
 
   // Instantiate E2AP client gateway.
-  std::unique_ptr<e2_connection_client> e2_gw = create_e2_gateway_client(generate_e2_client_gateway_config(
-      o_du_app_unit->get_o_du_high_unit_config().e2_cfg.base_cfg, *epoll_broker, *du_pcaps.e2ap, E2_DU_PPID));
+  std::unique_ptr<e2_connection_client> e2_gw =
+      create_du_e2_client_gateway(du_cfg.e2_cfg, *epoll_broker, *du_pcaps.e2ap);
 
   app_services::metrics_notifier_proxy_impl metrics_notifier_forwarder;
-  o_du_unit_dependencies                    du_dependencies;
+  du_unit_dependencies                      du_dependencies;
   du_dependencies.workers            = &workers;
   du_dependencies.f1c_client_handler = f1c_gw.get();
   du_dependencies.f1u_gw             = du_f1u_conn.get();
@@ -304,8 +324,7 @@ int main(int argc, char** argv)
   du_dependencies.json_sink          = &json_sink;
   du_dependencies.metrics_notifier   = &metrics_notifier_forwarder;
 
-  auto du_inst_and_cmds = o_du_app_unit->create_flexible_o_du_unit(du_dependencies, du_cfg.du_multicell_enabled);
-
+  auto du_inst_and_cmds = du_app_unit->create_flexible_du_unit(du_dependencies);
   // Only DU has metrics now.
   app_services::metrics_manager metrics_mngr(
       srslog::fetch_basic_logger("GNB"), *workers.metrics_hub_exec, du_inst_and_cmds.metrics);

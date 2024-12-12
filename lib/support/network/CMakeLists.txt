@@ -24,7 +24,8 @@ add_library(srsran_network
         io_broker_epoll.cpp
         io_timer_source.cpp
         sctp_socket.cpp
+        sctp_socket_usr.cpp
         sockets.cpp)
-target_link_libraries(srsran_network srslog)
+target_link_libraries(srsran_network srslog usrsctp)
 
 add_to_exported_libs(srsran_network)
