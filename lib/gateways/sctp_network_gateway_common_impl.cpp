@@ -126,7 +126,6 @@ expected<sctp_socket_usr> sctp_network_gateway_common_impl::create_socket_usr(in
   return sctp_socket_usr::create(params);
 }
 
-
 /// \brief Create and bind socket to given address.
 bool sctp_network_gateway_common_impl::create_and_bind_common()
 {
@@ -136,14 +135,14 @@ bool sctp_network_gateway_common_impl::create_and_bind_common()
     // create SCTP socket
 #ifndef USE_USRSCTP
     auto outcome = this->create_socket(result->ai_family, result->ai_socktype);
-#else    
+#else
     auto outcome = this->create_socket_usr(result->ai_family, result->ai_socktype);
-#endif    
+#endif
 #ifndef USE_USRSCTP
     if (not outcome.has_value()) {
 #else
     if (not outcome->is_open()) {
-#endif      
+#endif
       if (errno == ESOCKTNOSUPPORT) {
         // There is no support for this type of socket. Stop search.
         break;
