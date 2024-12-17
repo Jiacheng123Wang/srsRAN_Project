@@ -353,7 +353,7 @@ bool sctp_network_server_impl::listen()
     return false;
   }
 
-  if (not socket.listen()) {
+  if (not socket_ogs.listen()) {
     return false;
   }
 
@@ -366,7 +366,7 @@ bool sctp_network_server_impl::listen()
 
 std::optional<uint16_t> sctp_network_server_impl::get_listen_port()
 {
-  return socket.get_listen_port();
+  return socket_ogs.get_listen_port();
 }
 
 bool sctp_network_server_impl::subscribe_to_broker()

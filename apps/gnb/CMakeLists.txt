@@ -51,6 +51,8 @@ endif (DPDK_FOUND)
 
 target_include_directories(gnb_base PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/external)
 
+LINK_DIRECTORIES(${CMAKE_SOURCE_DIR}/ogssctp/lib)
+
 # Default gNB target with dynamic split.
 add_executable(gnb gnb.cpp)
 add_backward(gnb)

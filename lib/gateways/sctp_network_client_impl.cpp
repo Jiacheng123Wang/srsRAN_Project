@@ -190,12 +190,12 @@ sctp_network_client_impl::connect_to(const std::string&                         
   sockaddr_searcher searcher{dest_addr, dest_port, logger};
   auto              start = std::chrono::steady_clock::now();
   // Create SCTP socket only if not created earlier during bind. Otherwise, reuse socket.
-  bool             reuse_socket = socket.is_open();
+  bool             reuse_socket = socket_ogs.is_open();
   struct addrinfo* result       = nullptr;
   for (auto candidate = searcher.next(); candidate != nullptr and result == nullptr; candidate = searcher.next()) {
     if (not reuse_socket) {
       // Create SCTP socket only if not created earlier through bind or another connection.
-      expected<sctp_socket> outcome = create_socket(candidate->ai_family, candidate->ai_socktype);
+      expected<sctp_socket_ogs> outcome = create_socket_ogs(candidate->ai_family, candidate->ai_socktype);
       if (not outcome.has_value()) {
         if (errno == ESOCKTNOSUPPORT) {
           // Stop the search.
@@ -203,14 +203,14 @@ sctp_network_client_impl::connect_to(const std::string&                         
         }
         continue;
       }
-      socket = std::move(outcome.value());
+      socket_ogs = std::move(outcome.value());
     }
 
-    bool connection_success = socket.connect(*candidate->ai_addr, candidate->ai_addrlen);
+    bool connection_success = socket_ogs.connect(*candidate->ai_addr, candidate->ai_addrlen);
     if (not connection_success) {
       // connection failed, but before trying the next address, make sure the just created socket is deleted.
       if (not reuse_socket) {
-        socket.close();
+        socket_ogs.close();
       }
       continue;
     }
@@ -269,7 +269,7 @@ sctp_network_client_impl::connect_to(const std::string&                         
       shutdown_received.reset();
     }
     if (not reuse_socket) {
-      socket.close();
+      socket_ogs.close();
     }
     recv_handler.reset();
     return nullptr;
@@ -341,7 +341,7 @@ void sctp_network_client_impl::handle_sctp_shutdown_comp()
 
   // Make sure to close any socket created and implicitly bound for any previous connection.
   if (node_cfg.bind_address.empty()) {
-    socket.close();
+    socket_ogs.close();
   }
 
   // Erase server_addr and notify dtor that connection is closed.

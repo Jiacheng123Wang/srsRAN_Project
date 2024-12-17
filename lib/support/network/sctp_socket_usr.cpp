@@ -239,8 +239,6 @@ sctp_socket_usr::sctp_socket_usr() : logger(srslog::fetch_basic_logger("SCTP-GW"
 expected<sctp_socket_usr> sctp_socket_usr::create(const usrsctp_socket_params& params) {
   sctp_socket_usr socket;
 
-  usrsctp_init(params.bind_port, NULL, NULL);
-
   if (params.if_name.empty()) {
     socket.logger.error("Failed to create SCTP socket. Cause: No interface name was provided");
     return make_unexpected(default_error_t{});
@@ -310,12 +308,16 @@ bool sctp_socket_usr::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen
   if (getnameinfo(&ai_addr, ai_addrlen, hbuf, sizeof(hbuf), sbuf,
               sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) < 0) {
        logger.error("{}: Failed to bind, can not get name info for address - {}", if_name, strerror(errno));
+  } else {
+    printf("====== inside bind =========, host = %s, port = %s \n", hbuf, sbuf);
   }
 
   if (not is_open()) {
     logger.error("{}: Failed to bind to {}:{}. Cause: Socket is closed", if_name, hbuf, sbuf);
     return false;
   }
+
+  usrsctp_subscribe_to_events(sock_ptr);
 
   if (not bind_to_interface(sock_ptr, bind_interface, logger)) {
     return false;
@@ -345,15 +347,33 @@ bool sctp_socket_usr::connect(struct sockaddr& ai_addr, const socklen_t& ai_addr
   struct sockaddr_in servaddr;
   const char *name;
   uint16_t port;
+
+  struct usrsctp_udpencaps encaps;
+  memset(&encaps, 0, sizeof(struct usrsctp_udpencaps));
+  encaps.sue_address.ss_family = AF_INET;
+  encaps.sue_port = htons(38412);
+  if (usrsctp_setsockopt(sock_ptr, IPPROTO_SCTP, USR_SCTP_REMOTE_UDP_ENCAPS_PORT, (const void*)&encaps, (socklen_t)sizeof(struct usrsctp_udpencaps)) < 0) {
+    perror("setsockopt");
+  }
+
   if (ai_addr.sa_family == AF_INET) {
     servaddr.sin_family = AF_INET;
   
-    struct sockaddr_in *sin = (struct sockaddr_in *)&ai_addr;
-    char buf[INET_ADDRSTRLEN];
-	  name = inet_ntop(AF_INET, &sin->sin_addr, buf, INET_ADDRSTRLEN);
-    servaddr.sin_addr.s_addr = inet_addr(name);
-    port = htons(sin->sin_port);
-    servaddr.sin_port = port;
+    // struct sockaddr_in *sin = (struct sockaddr_in *)&ai_addr;
+    // char buf[INET_ADDRSTRLEN];
+	  // name = inet_ntop(AF_INET, &sin->sin_addr, buf, INET_ADDRSTRLEN);
+    // servaddr.sin_addr.s_addr = inet_addr(name);
+    // port = htons(sin->sin_port);
+    
+    char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+    if (getnameinfo(&ai_addr, ai_addrlen, hbuf, sizeof(hbuf), sbuf,
+              sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
+      printf("====== inside connection =======, host=%s, serv=%s\n", hbuf, sbuf);
+    }
+
+    servaddr.sin_port = htons(38412);
+    inet_pton(AF_INET, "10.53.1.2", &servaddr.sin_addr);
+
   } else if (ai_addr.sa_family == AF_INET6) {
     servaddr.sin_family = AF_INET6;
 

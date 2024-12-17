@@ -66,6 +66,10 @@
 // Include ThreadSanitizer (TSAN) options if thread sanitization is enabled.
 // This include is not unused - it helps prevent false alarms from the thread sanitizer.
 #include "srsran/support/tsan_options.h"
+#include <usrsctp.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <inttypes.h> /* strtoimax */
 
 using namespace srsran;
 
@@ -188,6 +192,69 @@ static void autoderive_cu_up_parameters_after_parsing(cu_up_unit_config& cu_up_c
 
 int main(int argc, char** argv)
 {
+// ////////////////
+// usrsctp_init(9899, NULL, NULL);
+// // usrsctp_sysctl_set_sctp_blackhole(2);
+// // usrsctp_sysctl_set_sctp_no_csum_on_loopback(0);
+
+// auto conn_sock = usrsctp_socket(AF_INET, SOCK_STREAM, IPPROTO_SCTP, NULL, NULL, 0, NULL);
+
+// // struct usrsctp_event event;
+// // uint16_t event_types[] = {USR_SCTP_ASSOC_CHANGE,
+// //                           USR_SCTP_PEER_ADDR_CHANGE,
+// //                           USR_SCTP_SEND_FAILED_EVENT};
+// // memset(&event, 0, sizeof(event));
+// // event.se_assoc_id = USR_SCTP_ALL_ASSOC;
+// // event.se_on = 1;
+// // for (uint16_t i = 0; i < sizeof(event_types)/sizeof(uint16_t); i++) {
+// //   event.se_type = event_types[i];
+// //   if (usrsctp_setsockopt(conn_sock, IPPROTO_SCTP, USR_SCTP_EVENT, &event, sizeof(event)) < 0) {
+// //     perror("setsockopt USR_SCTP_EVENT");
+// //   }
+// // }
+
+// struct usrsctp_udpencaps encaps;
+// memset(&encaps, 0, sizeof(struct usrsctp_udpencaps));
+// encaps.sue_address.ss_family = AF_INET;
+// encaps.sue_port = htons(9898);
+// if (usrsctp_setsockopt(conn_sock, IPPROTO_SCTP, USR_SCTP_REMOTE_UDP_ENCAPS_PORT, (const void*)&encaps, (socklen_t)sizeof(struct usrsctp_udpencaps)) < 0) {
+//   perror("setsockopt");
+// }
+
+// struct sockaddr_in cliaddr;
+// bzero((void *)&cliaddr, sizeof(cliaddr));
+// cliaddr.sin_family = AF_INET;
+// cliaddr.sin_port = htons(0);
+// cliaddr.sin_addr.s_addr = inet_addr("0.0.0.0");
+// // inet_pton(AF_INET, "10.53.1.1", &cliaddr.sin_addr);
+// /* bind & connect */
+// usrsctp_bind(conn_sock, (struct sockaddr *)&cliaddr, sizeof(struct sockaddr_in));
+
+// // struct sockaddr_in6 cliaddr;
+// // cliaddr.sin6_family = AF_INET6;
+// // cliaddr.sin6_port = htons(0);
+// // cliaddr.sin6_addr = in6addr_any;
+// // if (usrsctp_bind(conn_sock, (struct sockaddr *)&cliaddr, sizeof(struct sockaddr_in6)) < 0) {
+// //   perror("bind");
+// // }
+
+// // char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+// // if (getnameinfo((struct sockaddr *)&cliaddr, sizeof(struct sockaddr), hbuf, sizeof(hbuf), sbuf,
+// //             sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) < 0) {
+// //   printf("================== getnameinfo error ==================== \n");
+// // } else {
+// //   printf("====== inside bind =========, host = %s, port = %s \n", hbuf, sbuf);
+// // }
+
+// /* specify endpoint */
+// struct sockaddr_in servaddr;
+// bzero((void *)&servaddr, sizeof(servaddr));
+// servaddr.sin_family = AF_INET;
+// servaddr.sin_port = htons(38412);
+// servaddr.sin_addr.s_addr = inet_addr("10.53.1.2");
+// usrsctp_connect(conn_sock, (struct sockaddr *)&servaddr, sizeof(struct sockaddr_in));
+// ////////////////
+
   // Set the application error handler.
   set_error_handler(app_error_report_handler);
 
