@@ -21,16 +21,20 @@
 # - Try to find sctp
 #
 # Once done this will define
-#  SCTP_FOUND        - System has mbedtls
-#  SCTP_INCLUDE_DIRS - The mbedtls include directories
-#  SCTP_LIBRARIES    - The mbedtls library
+#  SCTP_FOUND        - System has sctp
+#  SCTP_INCLUDE_DIRS - The sctp include directories
+#  SCTP_LIBRARIES    - The sctp library
 
 FIND_PACKAGE(PkgConfig REQUIRED)
 PKG_CHECK_MODULES(PC_SCTP sctp)
 
 FIND_PATH(
     SCTP_INCLUDE_DIRS
-    NAMES netinet/sctp.h
+    if (LINUX)
+      NAMES netinet/sctp.h
+    elseif(APPLE)
+      NAMES usrsctp.h
+    endif()
     HINTS ${PC_SCTP_INCLUDEDIR}
           ${CMAKE_INSTALL_PREFIX}/include
     PATHS /usr/local/include
@@ -39,7 +43,11 @@ FIND_PATH(
 
 FIND_LIBRARY(
     SCTP_LIBRARIES
-    NAMES sctp
+    if (LINUX)
+      NAMES sctp
+    elseif(APPLE)
+      NAMES usrsctp
+    endif()
     HINTS ${PC_SCTP_LIBDIR}
           ${CMAKE_INSTALL_PREFIX}/lib
           ${CMAKE_INSTALL_PREFIX}/lib64

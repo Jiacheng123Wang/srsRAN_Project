@@ -20,17 +20,14 @@
  *
  */
 
+#include "srsran/support/io/ogs_sctp.h"
 #include "srsran/support/io/sctp_socket_ogs.h"
-#include "srsran/support/io/ogs-sctp.h"
-#include "srsran/support/io/ogs-socket.h"
-#include "srsran/support/io/ogs-sockaddr.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/support/error_handling.h"
 #include "srsran/support/io/sockets.h"
 #include "srsran/support/srsran_assert.h"
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <netinet/sctp.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <inttypes.h> /* strtoimax */
@@ -38,18 +35,6 @@
 using namespace srsran;
 
 namespace {
-
-/// Subscribes to various SCTP events to handle association and shutdown gracefully.
-bool sctp_subscribe_to_events(const unique_fd& fd)
-{
-  srsran_sanity_check(fd.is_open(), "Invalid FD");
-  struct sctp_event_subscribe events = {};
-  events.sctp_data_io_event          = 1;
-  events.sctp_shutdown_event         = 1;
-  events.sctp_association_event      = 1;
-
-  return ::setsockopt(fd.value(), IPPROTO_SCTP, SCTP_EVENTS, &events, sizeof(events)) == 0;
-}
 
 /// \brief Modify SCTP default parameters for quicker detection of broken links.
 /// Changes to the maximum re-transmission timeout (rto_max).
@@ -60,44 +45,6 @@ bool sctp_set_rto_opts(const unique_fd&      fd,
                        const std::string&    if_name,
                        srslog::basic_logger& logger)
 {
-  srsran_sanity_check(fd.is_open(), "Invalid FD");
-
-  if (not rto_initial.has_value() && not rto_min.has_value() && not rto_max.has_value()) {
-    // no need to set RTO
-    return true;
-  }
-
-  // Set RTO_MAX to quickly detect broken links.
-  sctp_rtoinfo rto_opts  = {};
-  socklen_t    rto_sz    = sizeof(sctp_rtoinfo);
-  rto_opts.srto_assoc_id = 0;
-  if (getsockopt(fd.value(), SOL_SCTP, SCTP_RTOINFO, &rto_opts, &rto_sz) < 0) {
-    logger.error("{}: Error getting RTO_INFO sockopts. errno={}", if_name, strerror(errno));
-    return false; // Responsibility of closing the socket is on the caller
-  }
-
-  if (rto_initial.has_value()) {
-    rto_opts.srto_initial = rto_initial.value();
-  }
-  if (rto_min.has_value()) {
-    rto_opts.srto_min = rto_min.value();
-  }
-  if (rto_max.has_value()) {
-    rto_opts.srto_max = rto_max.value();
-  }
-
-  logger.debug(
-      "{}: Setting RTO_INFO options on SCTP socket. Association {}, Initial RTO {}, Minimum RTO {}, Maximum RTO {}",
-      if_name,
-      rto_opts.srto_assoc_id,
-      rto_opts.srto_initial,
-      rto_opts.srto_min,
-      rto_opts.srto_max);
-
-  if (::setsockopt(fd.value(), SOL_SCTP, SCTP_RTOINFO, &rto_opts, rto_sz) < 0) {
-    logger.error("{}: Error setting RTO_INFO sockopts. errno={}", if_name, strerror(errno));
-    return false;
-  }
   return true;
 }
 
@@ -109,37 +56,6 @@ bool sctp_set_init_msg_opts(const unique_fd&      fd,
                             const std::string&    if_name,
                             srslog::basic_logger& logger)
 {
-  srsran_sanity_check(fd.is_open(), "Invalid FD");
-
-  if (not init_max_attempts.has_value() && not max_init_timeo.has_value()) {
-    // No value set for init max attempts or max init_timeo,
-    // no need to call set_sockopts()
-    return true;
-  }
-
-  // Set SCTP INITMSG options to reduce blocking timeout of connect()
-  sctp_initmsg init_opts = {};
-  socklen_t    init_sz   = sizeof(sctp_initmsg);
-  if (getsockopt(fd.value(), SOL_SCTP, SCTP_INITMSG, &init_opts, &init_sz) < 0) {
-    logger.error("{}: Error getting sockopts. errno={}", if_name, strerror(errno));
-    return false; // Responsibility of closing the socket is on the caller
-  }
-
-  if (init_max_attempts.has_value()) {
-    init_opts.sinit_max_attempts = init_max_attempts.value();
-  }
-  if (max_init_timeo.has_value()) {
-    init_opts.sinit_max_init_timeo = max_init_timeo.value();
-  }
-
-  logger.debug("{}: Setting SCTP_INITMSG options on SCTP socket. Max attempts {}, Max init attempts timeout {}",
-               if_name,
-               init_opts.sinit_max_attempts,
-               init_opts.sinit_max_init_timeo);
-  if (::setsockopt(fd.value(), SOL_SCTP, SCTP_INITMSG, &init_opts, init_sz) < 0) {
-    logger.error("{}: Error setting SCTP_INITMSG sockopts. errno={}\n", if_name, strerror(errno));
-    return false; // Responsibility of closing the socket is on the caller
-  }
   return true;
 }
 
@@ -176,7 +92,6 @@ expected<sctp_socket_ogs> sctp_socket_ogs::create(const sctp_socket_ogs_params& 
     return make_unexpected(default_error_t{});
   }
   socket.if_name = params.if_name;
-  //socket.sock_fd = unique_fd{::socket(params.ai_family, params.ai_socktype, IPPROTO_SCTP)};
   sctp = ogs_sctp_socket(params.ai_family, params.ai_socktype);
   socket.sock_fd = unique_fd{sctp->fd};
   socket.sock_ptr = sctp;
@@ -256,9 +171,11 @@ bool sctp_socket_ogs::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen
   ogs_sockaddr_t *addr;
   ogs_getaddrinfo(&addr, ai_addr.sa_family, hbuf, atoi(sbuf), 0);
 
-#ifdef linux
+#ifdef __LINUX__
   if (ogs_sock_bind(sock_ptr, addr) == -1) {
-#else
+#endif
+#ifdef __APPLE__
+  if (ogs_sctp_bind(sock_ptr, addr) == -1) {
 #endif
     logger.error("{}: Failed to bind to {}. Cause: {}", if_name, get_nameinfo(ai_addr, ai_addrlen), strerror(errno));
     return false;
@@ -335,11 +252,6 @@ bool sctp_socket_ogs::set_non_blocking()
 bool sctp_socket_ogs::set_sockopts(const sctp_socket_ogs_params& params)
 {
   logger.debug("Setting socket options. params=[{}]", params);
-  if (not sctp_subscribe_to_events(sock_fd)) {
-    logger.error(
-        "{}: SCTP failed to be created. Cause: Subscribing to SCTP events failed: {}", if_name, strerror(errno));
-    return false;
-  }
 
   if (params.rx_timeout.count() > 0) {
     if (not set_receive_timeout(sock_fd, params.rx_timeout, logger)) {
