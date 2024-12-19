@@ -158,7 +158,7 @@ std::string srsran::sock_type_to_str(int type)
       return "SOCK_RDM";
     case SOCK_SEQPACKET:
       return "SOCK_SEQPACKET";
-#ifdef __LINUX__      
+#ifdef __linux__
     case SOCK_DCCP:
       return "SOCK_DCCP";
     case SOCK_PACKET:

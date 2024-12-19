@@ -68,7 +68,7 @@ template <typename... Args>
   }
   ::fflush(stdout);
   fmt::print(stderr, "srsRAN ERROR: {}\n", fmt::format(reason_fmt, std::forward<Args>(args)...));
-#ifdef __LINUX__
+#ifdef __linux__
   std::quick_exit(1);
 #endif
 #ifdef __APPLE__

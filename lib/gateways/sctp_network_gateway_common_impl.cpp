@@ -89,23 +89,23 @@ bool sctp_network_gateway_common_impl::close_socket()
   return socket_ogs.close();
 }
 
-expected<sctp_socket> sctp_network_gateway_common_impl::create_socket(int ai_family, int ai_socktype) const
-{
-  sctp_socket_params params;
-  params.if_name           = node_cfg.if_name;
-  params.ai_family         = ai_family;
-  params.ai_socktype       = ai_socktype;
-  params.reuse_addr        = node_cfg.reuse_addr;
-  params.non_blocking_mode = node_cfg.non_blocking_mode;
-  params.rx_timeout        = std::chrono::seconds(node_cfg.rx_timeout_sec);
-  params.rto_initial       = node_cfg.rto_initial;
-  params.rto_min           = node_cfg.rto_min;
-  params.rto_max           = node_cfg.rto_max;
-  params.init_max_attempts = node_cfg.init_max_attempts;
-  params.max_init_timeo    = node_cfg.max_init_timeo;
-  params.nodelay           = node_cfg.nodelay;
-  return sctp_socket::create(params);
-}
+// expected<sctp_socket_ogs> sctp_network_gateway_common_impl::create_socket_ogs(int ai_family, int ai_socktype) const
+// {
+//   sctp_socket_ogs_params params;
+//   params.if_name           = node_cfg.if_name;
+//   params.ai_family         = ai_family;
+//   params.ai_socktype       = ai_socktype;
+//   params.reuse_addr        = node_cfg.reuse_addr;
+//   params.non_blocking_mode = node_cfg.non_blocking_mode;
+//   params.rx_timeout        = std::chrono::seconds(node_cfg.rx_timeout_sec);
+//   params.rto_initial       = node_cfg.rto_initial;
+//   params.rto_min           = node_cfg.rto_min;
+//   params.rto_max           = node_cfg.rto_max;
+//   params.init_max_attempts = node_cfg.init_max_attempts;
+//   params.max_init_timeo    = node_cfg.max_init_timeo;
+//   params.nodelay           = node_cfg.nodelay;
+//   return sctp_socket_ogs::create(params);
+// }
 
 expected<sctp_socket_ogs> sctp_network_gateway_common_impl::create_socket_ogs(int ai_family, int ai_socktype) const
 {

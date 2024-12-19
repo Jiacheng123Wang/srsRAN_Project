@@ -36,7 +36,7 @@ public:
   sctp_send_notifier(sctp_network_client_impl& parent_, const transport_layer_address& server_addr_) :
     client_name(parent_.node_cfg.if_name),
     ppid(parent_.node_cfg.ppid),
-    fd(parent_.socket.fd().value()),
+    fd(parent_.socket_ogs.fd().value()),
     logger(parent_.logger),
     server_addr(server_addr_),
     closed_flag(parent_.shutdown_received)
@@ -152,7 +152,7 @@ sctp_network_client_impl::~sctp_network_client_impl()
 
   // Signal that the upper layer sender should stop sending new SCTP data (including the EOF).
   if (eof_needed) {
-    sctp_sendmsg(socket.fd().value(),
+    sctp_sendmsg(socket_ogs.fd().value(),
                  nullptr,
                  0,
                  const_cast<struct sockaddr*>(server_addr_cpy.native().addr),
@@ -255,7 +255,7 @@ sctp_network_client_impl::connect_to(const std::string&                         
 
   // Register the socket in the IO broker.
   io_sub = broker.register_fd(
-      socket.fd().value(),
+      socket_ogs.fd().value(),
       [this]() { receive(); },
       [this](io_broker::error_code code) {
         std::string cause = fmt::format("IO error code={}", (int)code);
@@ -288,7 +288,7 @@ void sctp_network_client_impl::receive()
   sockaddr_storage msg_src_addr;
   socklen_t        msg_src_addrlen = sizeof(msg_src_addr);
 
-  int rx_bytes = ::sctp_recvmsg(socket.fd().value(),
+  int rx_bytes = ::sctp_recvmsg(socket_ogs.fd().value(),
                                 temp_recv_buffer.data(),
                                 temp_recv_buffer.size(),
                                 (struct sockaddr*)&msg_src_addr,

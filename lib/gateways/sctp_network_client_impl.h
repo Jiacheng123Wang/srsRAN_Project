@@ -52,7 +52,7 @@ public:
              int                                            dest_port,
              std::unique_ptr<sctp_association_sdu_notifier> recv_handler) override;
 
-  int get_socket_fd() const override { return socket.fd().value(); }
+  int get_socket_fd() const override { return socket_ogs.fd().value(); }
 
 private:
   class sctp_send_notifier;

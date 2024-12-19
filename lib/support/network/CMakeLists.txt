@@ -23,12 +23,12 @@ add_library(srsran_network
         io_broker_factory.cpp
         io_broker_epoll.cpp
         io_timer_source.cpp
-        #sctp_socket.cpp
+        sctp_socket.cpp
         sctp_socket_ogs.cpp
         #ogs-sctp.c
         #ogs-socket.c
         #ogs-lksctp.c
-        #sockets.cpp
+        sockets.cpp
         )
 
 target_link_libraries(srsran_network srslog ogssctp ogscore talloc)

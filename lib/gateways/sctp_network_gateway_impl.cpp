@@ -47,12 +47,12 @@ bool sctp_network_gateway_impl::create_and_bind()
 
 bool sctp_network_gateway_impl::listen()
 {
-  return socket.listen();
+  return socket_ogs.listen();
 }
 
 std::optional<uint16_t> sctp_network_gateway_impl::get_listen_port()
 {
-  return socket.get_listen_port();
+  return socket_ogs.get_listen_port();
 }
 
 bool sctp_network_gateway_impl::create_and_connect()
@@ -72,18 +72,18 @@ bool sctp_network_gateway_impl::create_and_connect()
   struct addrinfo*                                   result = nullptr;
   for (result = searcher.next(); result != nullptr; result = searcher.next()) {
     // Create SCTP socket only if not created in create_and_bind function.
-    if (not socket.is_open()) {
-      expected<sctp_socket> outcome = create_socket(result->ai_family, result->ai_socktype);
+    if (not socket_ogs.is_open()) {
+      expected<sctp_socket_ogs> outcome = create_socket_ogs(result->ai_family, result->ai_socktype);
       if (not outcome.has_value()) {
         if (errno == ESOCKTNOSUPPORT) {
           break;
         }
         continue;
       }
-      socket = std::move(outcome.value());
+      socket_ogs = std::move(outcome.value());
     }
 
-    if (not socket.connect(*result->ai_addr, result->ai_addrlen)) {
+    if (not socket_ogs.connect(*result->ai_addr, result->ai_addrlen)) {
       // connection failed, try next address
       close_socket();
       continue;
@@ -92,7 +92,7 @@ bool sctp_network_gateway_impl::create_and_connect()
     break;
   }
 
-  if (not socket.fd().is_open()) {
+  if (not socket_ogs.fd().is_open()) {
     std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
     auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     fmt::print("Failed to connect SCTP socket to {}:{}. error=\"{}\" timeout={}ms\n",
@@ -128,7 +128,7 @@ void sctp_network_gateway_impl::receive()
   // Fixme: consider class member on heap when sequential access is guaranteed
   std::array<uint8_t, network_gateway_sctp_max_len> tmp_mem; // no init
 
-  int rx_bytes = ::sctp_recvmsg(socket.fd().value(),
+  int rx_bytes = ::sctp_recvmsg(socket_ogs.fd().value(),
                                 tmp_mem.data(),
                                 network_gateway_sctp_max_len,
                                 (struct sockaddr*)&msg_src_addr,
@@ -247,7 +247,7 @@ void sctp_network_gateway_impl::handle_pdu(const byte_buffer& pdu)
 {
   logger.debug("Sending PDU of {} bytes", pdu.length());
 
-  if (not socket.fd().is_open()) {
+  if (not socket_ogs.fd().is_open()) {
     logger.error("Socket not initialized");
     return;
   }
@@ -268,7 +268,7 @@ void sctp_network_gateway_impl::handle_pdu(const byte_buffer& pdu)
     msg_dst_addrlen = msg_src_addrlen;
   }
 
-  int bytes_sent = sctp_sendmsg(socket.fd().value(),
+  int bytes_sent = sctp_sendmsg(socket_ogs.fd().value(),
                                 pdu_span.data(),
                                 pdu_span.size_bytes(),
                                 (struct sockaddr*)&msg_dst_addr,
@@ -287,7 +287,7 @@ void sctp_network_gateway_impl::handle_pdu(const byte_buffer& pdu)
 bool sctp_network_gateway_impl::subscribe_to(io_broker& broker)
 {
   io_sub = broker.register_fd(
-      socket.fd().value(),
+      socket_ogs.fd().value(),
       [this]() { receive(); },
       [this](io_broker::error_code code) {
         logger.info("Connection loss due to IO error code={}.", (int)code);

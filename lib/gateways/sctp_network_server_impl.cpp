@@ -37,7 +37,7 @@ public:
                      const sctp_network_server_impl::sctp_associaton_context& assoc,
                      srslog::basic_logger&                                    logger_) :
     ppid(parent.node_cfg.ppid),
-    fd(parent.socket.fd().value()),
+    fd(parent.socket_ogs.fd().value()),
     if_name(parent.node_cfg.if_name),
     assoc_id(assoc.assoc_id),
     client_addr(assoc.addr),
@@ -171,7 +171,7 @@ void sctp_network_server_impl::receive()
   sockaddr_storage msg_src_addr;
   socklen_t        msg_src_addrlen = sizeof(msg_src_addr);
 
-  int rx_bytes = ::sctp_recvmsg(socket.fd().value(),
+  int rx_bytes = ::sctp_recvmsg(socket_ogs.fd().value(),
                                 temp_recv_buffer.data(),
                                 temp_recv_buffer.size(),
                                 (struct sockaddr*)&msg_src_addr,
@@ -372,7 +372,7 @@ std::optional<uint16_t> sctp_network_server_impl::get_listen_port()
 bool sctp_network_server_impl::subscribe_to_broker()
 {
   io_sub = broker.register_fd(
-      socket.fd().value(),
+      socket_ogs.fd().value(),
       [this]() { receive(); },
       [this](io_broker::error_code code) {
         logger.info("Connection loss due to IO error code={}.", (int)code);

@@ -34,52 +34,7 @@
 
 using namespace srsran;
 
-namespace {
-
-/// \brief Modify SCTP default parameters for quicker detection of broken links.
-/// Changes to the maximum re-transmission timeout (rto_max).
-bool sctp_set_rto_opts(const unique_fd&      fd,
-                       std::optional<int>    rto_initial,
-                       std::optional<int>    rto_min,
-                       std::optional<int>    rto_max,
-                       const std::string&    if_name,
-                       srslog::basic_logger& logger)
-{
-  return true;
-}
-
-/// \brief Modify SCTP default parameters for quicker detection of broken links.
-/// Changes to the SCTP_INITMSG parameters (to control the timeout of the connect() syscall)
-bool sctp_set_init_msg_opts(const unique_fd&      fd,
-                            std::optional<int>    init_max_attempts,
-                            std::optional<int>    max_init_timeo,
-                            const std::string&    if_name,
-                            srslog::basic_logger& logger)
-{
-  return true;
-}
-
-/// Set or unset SCTP_NODELAY. With NODELAY enabled, SCTP messages are sent as soon as possible with no unnecessary
-/// delay, at the cost of transmitting more packets over the network. Otherwise their transmission might be delayed and
-/// concatenated with subsequent messages in order to transmit them in one big PDU.
-///
-/// Note: If the local interface supports jumbo frames (MTU size > 1500) but not the receiver, then the receiver might
-/// discard big PDUs and the stream might get stuck.
-bool sctp_set_nodelay(const unique_fd& fd, std::optional<bool> nodelay)
-{
-  if (not nodelay.has_value()) {
-    // no need to change anything
-    return true;
-  }
-
-  int optval = nodelay.value() ? 1 : 0;
-  return ::setsockopt(fd.value(), IPPROTO_SCTP, SCTP_NODELAY, &optval, sizeof(optval)) == 0;
-}
-
-} // namespace
-
 // sctp_socket class.
-
 sctp_socket_ogs::sctp_socket_ogs() : logger(srslog::fetch_basic_logger("SCTP-GW")) {}
 
 expected<sctp_socket_ogs> sctp_socket_ogs::create(const sctp_socket_ogs_params& params)
@@ -96,7 +51,7 @@ expected<sctp_socket_ogs> sctp_socket_ogs::create(const sctp_socket_ogs_params& 
   socket.sock_fd = unique_fd{sctp->fd};
   socket.sock_ptr = sctp;
 
-  if (not socket.sock_fd.is_open()) {
+  if (not socket.is_open()) {
     int ret = errno;
     if (ret == ESOCKTNOSUPPORT) {
       // probably the sctp kernel module is missing on the system, inform the user and exit here
@@ -111,7 +66,7 @@ expected<sctp_socket_ogs> sctp_socket_ogs::create(const sctp_socket_ogs_params& 
     }
     return make_unexpected(default_error_t{});
   }
-  socket.logger.debug("{}: SCTP socket created with fd={}", socket.if_name, socket.sock_fd.value());
+  socket.logger.debug("{}: SCTP socket created with fd={}", socket.if_name, socket.sock_ptr->fd);
 
   if (not socket.set_sockopts(params)) {
     socket.close();
@@ -127,6 +82,7 @@ expected<sctp_socket_ogs> sctp_socket_ogs::create(const sctp_socket_ogs_params& 
 sctp_socket_ogs& sctp_socket_ogs::operator=(sctp_socket_ogs&& other) noexcept
 {
   sock_fd = std::move(other.sock_fd);
+  sock_ptr = other.sock_ptr;
   if_name = std::move(other.if_name);
   return *this;
 }
@@ -138,12 +94,14 @@ sctp_socket_ogs::~sctp_socket_ogs()
 
 bool sctp_socket_ogs::close()
 {
-  if (not sock_fd.is_open()) {
+  if (not is_open()) {
     return true;
   }
   if (not sock_fd.close()) {
     logger.error("{}: Error closing SCTP socket: {}", if_name, strerror(errno));
     return false;
+  } else {
+    sock_ptr = nullptr;
   }
   logger.info("{}: SCTP socket closed", if_name);
   if_name.clear();
@@ -171,7 +129,7 @@ bool sctp_socket_ogs::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen
   ogs_sockaddr_t *addr;
   ogs_getaddrinfo(&addr, ai_addr.sa_family, hbuf, atoi(sbuf), 0);
 
-#ifdef __LINUX__
+#ifdef __linux__
   if (ogs_sock_bind(sock_ptr, addr) == -1) {
 #endif
 #ifdef __APPLE__
@@ -201,13 +159,15 @@ bool sctp_socket_ogs::connect(struct sockaddr& ai_addr, const socklen_t& ai_addr
     return false;
   }
 
-  char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
-  if (getnameinfo(&ai_addr, ai_addrlen, hbuf, sizeof(hbuf), sbuf,
-            sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
-    printf("====== inside connection =======, host=%s, serv=%s\n", hbuf, sbuf);
+  std::array<char, NI_MAXHOST> ip_addr;
+  int                          port;
+  if (not getnameinfo(ai_addr, ai_addrlen, ip_addr, port)) {
+    return false;
   }
+  printf("====== inside connection =======, host=%s, serv=%d\n", ip_addr.data(), port);
+
   ogs_sockaddr_t *addr;
-  ogs_getaddrinfo(&addr, ai_addr.sa_family, hbuf, atoi(sbuf), 0);
+  ogs_getaddrinfo(&addr, ai_addr.sa_family, ip_addr.data(), port, 0);
 
   if (ogs_sctp_connect(sock_ptr, addr) == -1) {
     logger.debug("{}: Failed to connect to {} - {}", if_name, get_nameinfo(ai_addr, ai_addrlen), strerror(errno));
@@ -231,7 +191,12 @@ bool sctp_socket_ogs::listen()
     return false;
   }
   // Listen for connections
-  int ret = ::listen(sock_fd.value(), SOMAXCONN);
+#ifdef __linux__
+  int ret = ogs_sock_listen(sock_ptr);
+#endif
+#ifdef __APPLE__
+  int ret = ogs_sctp_listen(sock_ptr);
+#endif
   if (ret != 0) {
     logger.error("{}: Error in SCTP socket listen: {}", if_name, strerror(errno));
     return false;
@@ -259,25 +224,49 @@ bool sctp_socket_ogs::set_sockopts(const sctp_socket_ogs_params& params)
     }
   }
 
-  // Set SRTO_MAX
-  if (not sctp_set_rto_opts(sock_fd, params.rto_initial, params.rto_min, params.rto_max, if_name, logger)) {
+  ogs_sockopt_t option;
+  ogs_sockopt_init(&option);
+
+  // Set SRTO value
+  if (params.rto_initial.has_value()) {
+    option.sctp.srto_initial = params.rto_initial.value();
+  }
+  if (params.rto_min.has_value()) {
+    option.sctp.srto_min = params.rto_min.value();
+  }
+  if (params.rto_max.has_value()) {
+    option.sctp.srto_max = params.rto_max.value();
+  }
+  if (ogs_sctp_rto_info(sock_ptr, &option) == -1) {
+    logger.error("{}: Error setting RTO_INFO sockopts. errno={}", if_name, strerror(errno));
     return false;
   }
 
   // Set SCTP init options
-  if (not sctp_set_init_msg_opts(sock_fd, params.init_max_attempts, params.max_init_timeo, if_name, logger)) {
+  if (params.init_max_attempts.has_value()) {
+    option.sctp.sinit_max_attempts = params.init_max_attempts.value();
+  }
+  if (params.max_init_timeo.has_value()) {
+    option.sctp.sinit_max_init_timeo = params.max_init_timeo.value();
+  }
+  if (ogs_sctp_initmsg(sock_ptr, &option) == -1) {
+    logger.error("{}: Error setting SCTP_INITMSG sockopts. errno={}\n", if_name, strerror(errno));
     return false;
   }
 
   // Set SCTP NODELAY option
-  if (not sctp_set_nodelay(sock_fd, params.nodelay)) {
-    logger.error(
+  if (params.nodelay.has_value()) {
+    int optval = params.nodelay.value() ? 1 : 0;
+    if (ogs_sctp_nodelay(sock_ptr, optval) == -1) {
+      logger.error(
         "{}: Could not set SCTP_NODELAY. optval={} error={}", if_name, params.nodelay.value() ? 1 : 0, strerror(errno));
-    return false;
+      return false;
+    }
   }
 
   if (params.reuse_addr) {
-    if (not set_reuse_addr(sock_fd, logger)) {
+    int on = 1;
+    if (ogs_listen_reusable(sock_ptr->fd, on) == -1) {
       return false;
     }
   }
@@ -287,7 +276,7 @@ bool sctp_socket_ogs::set_sockopts(const sctp_socket_ogs_params& params)
 
 std::optional<uint16_t> sctp_socket_ogs::get_listen_port() const
 {
-  if (not sock_fd.is_open()) {
+  if (not is_open()) {
     logger.error("Socket of SCTP network gateway not created.");
     return {};
   }
@@ -296,11 +285,11 @@ std::optional<uint16_t> sctp_socket_ogs::get_listen_port() const
   sockaddr*        gw_addr     = (sockaddr*)&gw_addr_storage;
   socklen_t        gw_addr_len = sizeof(gw_addr_storage);
 
-  int ret = getsockname(sock_fd.value(), gw_addr, &gw_addr_len);
+  int ret = getsockname(sock_ptr->fd, gw_addr, &gw_addr_len);
   if (ret != 0) {
     logger.error("{}: Failed `getsockname` in SCTP network gateway with sock_fd={}: {}",
                  if_name,
-                 sock_fd.value(),
+                 sock_ptr->fd,
                  strerror(errno));
     return {};
   }
@@ -313,7 +302,7 @@ std::optional<uint16_t> sctp_socket_ogs::get_listen_port() const
   } else {
     logger.error("{}: Unhandled address family in SCTP network gateway with sock_fd={} family={}",
                  if_name,
-                 sock_fd.value(),
+                 sock_ptr->fd,
                  gw_addr->sa_family);
     return {};
   }

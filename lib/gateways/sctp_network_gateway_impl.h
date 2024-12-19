@@ -40,7 +40,7 @@ public:
   bool create_and_connect() override;
 
   /// \brief Return socket file descriptor.
-  int get_socket_fd() override { return socket.fd().value(); }
+  int get_socket_fd() override { return socket_ogs.fd().value(); }
 
   /// \brief Trigger receive call on socket.
   void receive() override;

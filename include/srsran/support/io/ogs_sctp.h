@@ -201,7 +201,7 @@ extern int __ogs_sctp_domain;
 
 #else
 
-#ifdef __LINUX__
+#ifdef __linux__
 #include <netinet/sctp.h>
 #endif
 #ifdef __APPLE__
@@ -273,6 +273,9 @@ void ogs_sctp_flush_and_destroy(ogs_sctp_sock_t *sctp);
 int ogs_getaddrinfo(ogs_sockaddr_t **sa_list,
         int family, const char *hostname, uint16_t port, int flags);
 int ogs_sock_bind(ogs_sock_t *sock, ogs_sockaddr_t *addr);
+int ogs_listen_reusable(ogs_socket_t fd, int on);
+void ogs_sockopt_init(ogs_sockopt_t *option);
+int ogs_sock_listen(ogs_sock_t *sock);
 
 static __inline__ void *ogs_list_first(const ogs_list_t *list)
 {

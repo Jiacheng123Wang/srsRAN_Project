@@ -47,7 +47,7 @@ public:
                                                      io_broker&                         broker,
                                                      sctp_network_association_factory&  assoc_factory);
 
-  int get_socket_fd() const override { return socket.fd().value(); }
+  int get_socket_fd() const override { return socket_ogs.fd().value(); }
 
   void receive();
 
