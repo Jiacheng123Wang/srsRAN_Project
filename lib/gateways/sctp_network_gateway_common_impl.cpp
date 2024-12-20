@@ -20,7 +20,6 @@
  *
  */
 
-#define USE_USRSCTP
 #include "sctp_network_gateway_common_impl.h"
 #include "srsran/srslog/srslog.h"
 #include <netdb.h>
@@ -89,24 +88,6 @@ bool sctp_network_gateway_common_impl::close_socket()
   return socket_ogs.close();
 }
 
-// expected<sctp_socket_ogs> sctp_network_gateway_common_impl::create_socket_ogs(int ai_family, int ai_socktype) const
-// {
-//   sctp_socket_ogs_params params;
-//   params.if_name           = node_cfg.if_name;
-//   params.ai_family         = ai_family;
-//   params.ai_socktype       = ai_socktype;
-//   params.reuse_addr        = node_cfg.reuse_addr;
-//   params.non_blocking_mode = node_cfg.non_blocking_mode;
-//   params.rx_timeout        = std::chrono::seconds(node_cfg.rx_timeout_sec);
-//   params.rto_initial       = node_cfg.rto_initial;
-//   params.rto_min           = node_cfg.rto_min;
-//   params.rto_max           = node_cfg.rto_max;
-//   params.init_max_attempts = node_cfg.init_max_attempts;
-//   params.max_init_timeo    = node_cfg.max_init_timeo;
-//   params.nodelay           = node_cfg.nodelay;
-//   return sctp_socket_ogs::create(params);
-// }
-
 expected<sctp_socket_ogs> sctp_network_gateway_common_impl::create_socket_ogs(int ai_family, int ai_socktype) const
 {
   sctp_socket_ogs_params params;
@@ -132,61 +113,23 @@ bool sctp_network_gateway_common_impl::create_and_bind_common()
   struct addrinfo*  result = nullptr;
   for (result = searcher.next(); result != nullptr; result = searcher.next()) {
     // create SCTP socket
-#ifndef USE_USRSCTP
-    auto outcome = this->create_socket(result->ai_family, result->ai_socktype);
-#else
     auto outcome = this->create_socket_ogs(result->ai_family, result->ai_socktype);
-#endif
-#ifndef USE_USRSCTP
-    if (not outcome.has_value()) {
-#else
     if (not outcome->is_open()) {
-#endif
       if (errno == ESOCKTNOSUPPORT) {
         // There is no support for this type of socket. Stop search.
         break;
       }
       continue;
     }
-#ifndef USE_USRSCTP
-    sctp_socket& candidate = outcome.value();
-
-    if (not candidate.bind(*result->ai_addr, result->ai_addrlen, node_cfg.bind_interface)) {
-      // Bind failed. Try next candidate
-      continue;
-    }
-
-    // Socket is successfully created and binded. Save it and exit search.
-    socket = std::move(candidate);
-#else
     sctp_socket_ogs& candidate = outcome.value();
     if (not candidate.bind(*result->ai_addr, result->ai_addrlen, node_cfg.bind_interface)) {
       // Bind failed. Try next candidate
       continue;
     }
-
     socket_ogs = std::move(candidate);
     socket_ogs.sock_ptr = candidate.sock_ptr;
     
-    printf("================= port number = %d ==============\n", socket_ogs.get_listen_port().value());
-
-    // struct sockaddr *addrs;
-    // if (usrsctp_getladdrs((struct socket*)socket_usr.ptr(), 0, &addrs) < 0) {
-    //   logger.error("Failed `getsockname` in SCTP network gateway - {}", addrs->sa_family);
-    //   return {};
-    // }
-
-    // const char *name;
-    // uint16_t port;
-    // struct sockaddr_in *sin = (struct sockaddr_in *)addrs;
-    // char buf[INET_ADDRSTRLEN];
-    //      name = inet_ntop(AF_INET, &sin->sin_addr, buf, INET_ADDRSTRLEN);
-    // port = htons(sin->sin_port);
-
-
-    // printf("================= host ip = %s, port = %d ==============\n", name, port);
-#endif
-     break;
+    break;
   }
 
   if (not socket_ogs.is_open()) {

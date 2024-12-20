@@ -123,10 +123,10 @@ bool sctp_socket_ogs::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen
 
   char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
   if (getnameinfo(&ai_addr, ai_addrlen, hbuf, sizeof(hbuf), sbuf,
-            sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
-//    printf("====== inside connection =======, host=%s, serv=%s\n", hbuf, sbuf);
+            sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) == -1) {
+    return false;          
   }
-  ogs_sockaddr_t *addr;
+  ogs_sockaddr_t *addr = NULL;
   ogs_getaddrinfo(&addr, ai_addr.sa_family, hbuf, atoi(sbuf), 0);
 
 #ifdef __linux__
@@ -164,8 +164,6 @@ bool sctp_socket_ogs::connect(struct sockaddr& ai_addr, const socklen_t& ai_addr
   if (not getnameinfo(ai_addr, ai_addrlen, ip_addr, port)) {
     return false;
   }
-  printf("====== inside connection =======, host=%s, serv=%d\n", ip_addr.data(), port);
-
   ogs_sockaddr_t *addr;
   ogs_getaddrinfo(&addr, ai_addr.sa_family, ip_addr.data(), port, 0);
 

@@ -19,7 +19,7 @@
  * and at http://www.gnu.org/licenses/.
  *
  */
-
+#include "srsran/support/io/ogs_sctp.h"
 #include "sctp_network_gateway_impl.h"
 #include "srsran/gateways/addr_info.h"
 #include "srsran/support/io/sockets.h"
@@ -268,16 +268,31 @@ void sctp_network_gateway_impl::handle_pdu(const byte_buffer& pdu)
     msg_dst_addrlen = msg_src_addrlen;
   }
 
-  int bytes_sent = sctp_sendmsg(socket_ogs.fd().value(),
-                                pdu_span.data(),
-                                pdu_span.size_bytes(),
-                                (struct sockaddr*)&msg_dst_addr,
-                                msg_dst_addrlen,
-                                htonl(config.ppid),
-                                0,
-                                stream_no,
-                                0,
-                                0);
+  // int bytes_sent = sctp_sendmsg(socket_ogs.fd().value(),
+  //                               pdu_span.data(),
+  //                               pdu_span.size_bytes(),
+  //                               (struct sockaddr*)&msg_dst_addr,
+  //                               msg_dst_addrlen,
+  //                               htonl(config.ppid),
+  //                               0,
+  //                               stream_no,
+  //                               0,
+  //                               0);
+    std::array<char, NI_MAXHOST> ip_addr;
+    int                          port;
+    if (not getnameinfo((const struct sockaddr &)msg_dst_addr, msg_dst_addrlen, ip_addr, port)) {
+      return;
+    }
+    printf("++++++++++++++++++++++++++++ %s:%d  ++++++++++++++++++++++++\n", ip_addr.data(), port);
+
+    ogs_sockaddr_t *addr;
+    ogs_getaddrinfo(&addr, msg_dst_addr.ss_family, ip_addr.data(), port, 0);
+    int bytes_sent = ogs_sctp_sendmsg(socket_ogs.sock_ptr, 
+                                  pdu_span.data(),
+                                  pdu_span.size_bytes(),
+                                  addr, 
+                                  htonl(config.ppid), 
+                                  stream_no);
   if (bytes_sent == -1) {
     logger.error("Couldn't send {} B of data on SCTP socket: {}", pdu_span.size_bytes(), strerror(errno));
     return;

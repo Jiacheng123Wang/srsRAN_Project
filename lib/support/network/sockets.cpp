@@ -73,6 +73,7 @@ bool srsran::bind_to_interface(const unique_fd& fd, const std::string& interface
     return true;
   }
 
+#ifdef SO_BINDTODEVICE
   ifreq ifr{};
   std::strncpy(ifr.ifr_ifrn.ifrn_name, interface.c_str(), IFNAMSIZ - 1);
   ifr.ifr_ifrn.ifrn_name[IFNAMSIZ - 1] = 0; // ensure null termination in case input exceeds maximum length
@@ -84,6 +85,7 @@ bool srsran::bind_to_interface(const unique_fd& fd, const std::string& interface
                  strerror(errno));
     return false;
   }
+#endif
   return true;
 }
 
@@ -158,9 +160,11 @@ std::string srsran::sock_type_to_str(int type)
       return "SOCK_RDM";
     case SOCK_SEQPACKET:
       return "SOCK_SEQPACKET";
-#ifdef __linux__
+#ifdef SOCK_DCCP
     case SOCK_DCCP:
       return "SOCK_DCCP";
+#endif
+#ifdef SOCK_PACKET
     case SOCK_PACKET:
       return "SOCK_PACKET";
 #endif      

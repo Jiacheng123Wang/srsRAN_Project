@@ -20,6 +20,7 @@
  *
  */
 
+#include "srsran/support/io/ogs_sctp.h"
 #include "sctp_network_client_impl.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/support/io/sockets.h"
@@ -60,17 +61,26 @@ public:
     // Note: each sender needs its own buffer to avoid race conditions with the recv.
     span<const uint8_t> pdu_span = to_span(sdu, send_buffer);
 
-    auto dest_addr  = server_addr.native();
-    int  bytes_sent = sctp_sendmsg(fd,
+    auto dest_addr  = server_addr.native();  
+    std::array<char, NI_MAXHOST> ip_addr;
+    int                          port;
+    if (not getnameinfo(const_cast<const struct sockaddr&>(*dest_addr.addr), dest_addr.addrlen, ip_addr, port)) {
+      return false;
+    }
+    printf("============ Sending PDU to host=%s, serv=%d of bytes %lu =============, \n", ip_addr.data(), port, pdu_span.size());
+
+    ogs_sockaddr_t *addr;
+    ogs_getaddrinfo(&addr, (*dest_addr.addr).sa_family, ip_addr.data(), port, 0);
+  
+    ogs_sock_t                    fd_sock;
+    fd_sock.fd = fd;
+    int bytes_sent = ogs_sctp_sendmsg(&fd_sock, 
                                   pdu_span.data(),
                                   pdu_span.size(),
-                                  const_cast<struct sockaddr*>(dest_addr.addr),
-                                  dest_addr.addrlen,
-                                  htonl(ppid),
-                                  0,
-                                  stream_no,
-                                  0,
-                                  0);
+                                  addr, 
+                                  htonl(ppid), 
+                                  stream_no);
+
     if (bytes_sent == -1) {
       logger.error("{}: Closing SCTP association. Cause: Couldn't send {} B of data. errno={}",
                    client_name,
@@ -93,16 +103,33 @@ private:
 
     // Send EOF to SCTP server.
     auto dest_addr  = server_addr.native();
-    int  bytes_sent = sctp_sendmsg(fd,
+    // int  bytes_sent = sctp_sendmsg(fd,
+    //                               nullptr,
+    //                               0,
+    //                               const_cast<struct sockaddr*>(dest_addr.addr),
+    //                               dest_addr.addrlen,
+    //                               htonl(ppid),
+    //                               SCTP_EOF,
+    //                               stream_no,
+    //                               0,
+    //                               0);  
+    std::array<char, NI_MAXHOST> ip_addr;
+    int                          port;
+    if (not getnameinfo(const_cast<const struct sockaddr&>(*dest_addr.addr), dest_addr.addrlen, ip_addr, port)) {
+      return;
+    }
+    printf("============ send to EOF to host=%s : %d  =============\n", ip_addr.data(), port);
+
+    ogs_sockaddr_t *addr;
+    ogs_getaddrinfo(&addr, (*dest_addr.addr).sa_family, ip_addr.data(), port, 0);
+    ogs_sock_t                    fd_sock;
+    fd_sock.fd = fd;
+    int bytes_sent = ogs_sctp_sendmsg(&fd_sock, 
                                   nullptr,
                                   0,
-                                  const_cast<struct sockaddr*>(dest_addr.addr),
-                                  dest_addr.addrlen,
-                                  htonl(ppid),
-                                  SCTP_EOF,
-                                  stream_no,
-                                  0,
-                                  0);
+                                  addr, 
+                                  htonl(ppid), 
+                                  stream_no);
 
     if (bytes_sent == -1) {
       // Failed to send EOF.
@@ -152,16 +179,31 @@ sctp_network_client_impl::~sctp_network_client_impl()
 
   // Signal that the upper layer sender should stop sending new SCTP data (including the EOF).
   if (eof_needed) {
-    sctp_sendmsg(socket_ogs.fd().value(),
-                 nullptr,
-                 0,
-                 const_cast<struct sockaddr*>(server_addr_cpy.native().addr),
-                 server_addr_cpy.native().addrlen,
-                 htonl(node_cfg.ppid),
-                 SCTP_EOF,
-                 stream_no,
-                 0,
-                 0);
+    // sctp_sendmsg(socket_ogs.fd().value(),
+    //              nullptr,
+    //              0,
+    //              const_cast<struct sockaddr*>(server_addr_cpy.native().addr),
+    //              server_addr_cpy.native().addrlen,
+    //              htonl(node_cfg.ppid),
+    //              SCTP_EOF,
+    //              stream_no,
+    //              0,
+    //              0);
+    std::array<char, NI_MAXHOST> ip_addr;
+    int                          port;
+    if (not getnameinfo(const_cast<const struct sockaddr&>(*server_addr_cpy.native().addr), server_addr_cpy.native().addrlen, ip_addr, port)) {
+      return;
+    }
+    printf("============ send signal to %s:%d to stop sending new SCTP data =============\n", ip_addr.data(), port);
+
+    ogs_sockaddr_t *addr;
+    ogs_getaddrinfo(&addr, (*server_addr_cpy.native().addr).sa_family, ip_addr.data(), port, 0);
+    ogs_sctp_sendmsg(socket_ogs.sock_ptr, 
+                                  nullptr,
+                                  0,
+                                  addr, 
+                                  htonl(node_cfg.ppid), 
+                                  stream_no);
   }
 
   // No subscription is on-going. It is now safe to close the socket.
@@ -284,17 +326,18 @@ void sctp_network_client_impl::receive()
 {
   struct sctp_sndrcvinfo sri       = {};
   int                    msg_flags = 0;
-  // fromlen is an in/out variable in sctp_recvmsg.
-  sockaddr_storage msg_src_addr;
-  socklen_t        msg_src_addrlen = sizeof(msg_src_addr);
-
-  int rx_bytes = ::sctp_recvmsg(socket_ogs.fd().value(),
-                                temp_recv_buffer.data(),
-                                temp_recv_buffer.size(),
-                                (struct sockaddr*)&msg_src_addr,
-                                &msg_src_addrlen,
-                                &sri,
-                                &msg_flags);
+  socklen_t        msg_src_addrlen = sizeof(sockaddr_storage);
+  ogs_sockaddr_t msg_src_addr;
+  ogs_sctp_info_t sinfo;
+  int rx_bytes = ogs_sctp_recvmsg(socket_ogs.sock_ptr, temp_recv_buffer.data(), temp_recv_buffer.size(),
+        &msg_src_addr, &sinfo, &msg_flags);
+  
+  std::array<char, NI_MAXHOST> ip_addr;
+  int                          port;
+  if (not getnameinfo(msg_src_addr.sa, sizeof(ogs_sockaddr_t), ip_addr, port)) {
+      logger.error("Socket get name error");
+  }
+  printf("******************** sctp_network_client_impl::receive ********************, host=%s, serv=%d\n", ip_addr.data(), port);
 
   // Handle error.
   if (rx_bytes == -1) {
