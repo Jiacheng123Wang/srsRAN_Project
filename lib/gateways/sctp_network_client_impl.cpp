@@ -64,7 +64,7 @@ public:
     auto dest_addr  = server_addr.native();  
     std::array<char, NI_MAXHOST> ip_addr;
     int                          port;
-    if (not getnameinfo(const_cast<const struct sockaddr&>(*dest_addr.addr), dest_addr.addrlen, ip_addr, port)) {
+    if (not getnameinfo(*(dest_addr.addr), dest_addr.addrlen, ip_addr, port)) {
       return false;
     }
     printf("============ Sending PDU to host=%s, serv=%d of bytes %lu =============, \n", ip_addr.data(), port, pdu_span.size());
@@ -115,11 +115,12 @@ private:
     //                               0);  
     std::array<char, NI_MAXHOST> ip_addr;
     int                          port;
-    if (not getnameinfo(const_cast<const struct sockaddr&>(*dest_addr.addr), dest_addr.addrlen, ip_addr, port)) {
+    if (not getnameinfo(*(dest_addr.addr), dest_addr.addrlen, ip_addr, port)) {
       return;
     }
     printf("============ send to EOF to host=%s : %d  =============\n", ip_addr.data(), port);
 
+    // to be updated to add SCTP_EOF flag field
     ogs_sockaddr_t *addr;
     ogs_getaddrinfo(&addr, (*dest_addr.addr).sa_family, ip_addr.data(), port, 0);
     ogs_sock_t                    fd_sock;
@@ -191,11 +192,12 @@ sctp_network_client_impl::~sctp_network_client_impl()
     //              0);
     std::array<char, NI_MAXHOST> ip_addr;
     int                          port;
-    if (not getnameinfo(const_cast<const struct sockaddr&>(*server_addr_cpy.native().addr), server_addr_cpy.native().addrlen, ip_addr, port)) {
+    if (not getnameinfo(*(server_addr_cpy.native().addr), server_addr_cpy.native().addrlen, ip_addr, port)) {
       return;
     }
     printf("============ send signal to %s:%d to stop sending new SCTP data =============\n", ip_addr.data(), port);
 
+    // to be updated to add SCTP_EOF flag field
     ogs_sockaddr_t *addr;
     ogs_getaddrinfo(&addr, (*server_addr_cpy.native().addr).sa_family, ip_addr.data(), port, 0);
     ogs_sctp_sendmsg(socket_ogs.sock_ptr, 

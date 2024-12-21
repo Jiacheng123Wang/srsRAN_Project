@@ -19,6 +19,7 @@
  * and at http://www.gnu.org/licenses/.
  *
  */
+
 #include "srsran/support/io/ogs_sctp.h"
 #include "sctp_network_gateway_impl.h"
 #include "srsran/gateways/addr_info.h"
@@ -122,19 +123,31 @@ bool sctp_network_gateway_impl::create_and_connect()
 
 void sctp_network_gateway_impl::receive()
 {
-  struct sctp_sndrcvinfo sri       = {};
+//  struct sctp_sndrcvinfo sri       = {};
   int                    msg_flags = 0;
 
   // Fixme: consider class member on heap when sequential access is guaranteed
   std::array<uint8_t, network_gateway_sctp_max_len> tmp_mem; // no init
 
-  int rx_bytes = ::sctp_recvmsg(socket_ogs.fd().value(),
-                                tmp_mem.data(),
-                                network_gateway_sctp_max_len,
-                                (struct sockaddr*)&msg_src_addr,
-                                &msg_src_addrlen,
-                                &sri,
-                                &msg_flags);
+  // int rx_bytes = ::sctp_recvmsg(socket_ogs.fd().value(),
+  //                               tmp_mem.data(),
+  //                               network_gateway_sctp_max_len,
+  //                               (struct sockaddr*)&msg_src_addr,
+  //                               &msg_src_addrlen,
+  //                               &sri,
+  //                               &msg_flags);
+  //socklen_t        msg_src_addrlen = sizeof(sockaddr_storage);
+  ogs_sockaddr_t msg_rx_addr;
+  ogs_sctp_info_t sinfo;
+  int rx_bytes = ogs_sctp_recvmsg(socket_ogs.sock_ptr, tmp_mem.data(), network_gateway_sctp_max_len,
+        &msg_rx_addr, &sinfo, &msg_flags);
+  
+  std::array<char, NI_MAXHOST> ip_addr;
+  int                          port;
+  if (not getnameinfo(msg_rx_addr.sa, sizeof(ogs_sockaddr_t), ip_addr, port)) {
+      logger.error("Socket get name error");
+  }
+  printf("******************** sctp_network_gateway_impl::receive ********************, host=%s, serv=%d\n", ip_addr.data(), port);
 
   if (rx_bytes == -1 && errno != EAGAIN) {
     logger.error("Error reading from SCTP socket: {}", strerror(errno));
@@ -280,10 +293,10 @@ void sctp_network_gateway_impl::handle_pdu(const byte_buffer& pdu)
   //                               0);
     std::array<char, NI_MAXHOST> ip_addr;
     int                          port;
-    if (not getnameinfo((const struct sockaddr &)msg_dst_addr, msg_dst_addrlen, ip_addr, port)) {
+    if (not getnameinfo(*((struct sockaddr*)&msg_dst_addr), msg_dst_addrlen, ip_addr, port)) {
       return;
     }
-    printf("++++++++++++++++++++++++++++ %s:%d  ++++++++++++++++++++++++\n", ip_addr.data(), port);
+    printf("++++++++++++++++++++++++++++ in handle_pdu, to %s:%d  ++++++++++++++++++++++++\n", ip_addr.data(), port);
 
     ogs_sockaddr_t *addr;
     ogs_getaddrinfo(&addr, msg_dst_addr.ss_family, ip_addr.data(), port, 0);

@@ -22,9 +22,10 @@
 
 #pragma once
 
+#include "srsran/support/io/ogs_sctp.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/support/io/io_broker.h"
-#include "srsran/support/io/sctp_socket.h"
+#include "srsran/support/io/sctp_socket_ogs.h"
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/sctp.h>
@@ -121,6 +122,18 @@ public:
                                   &data.msg_src_addrlen,
                                   &data.sri,
                                   &data.msg_flags);
+    // ogs_sockaddr_t msg_rx_addr;
+    // ogs_sctp_info_t sinfo;
+    // int rx_bytes = ogs_sctp_recvmsg(socket.sock_ptr, temp_buf.data(), temp_buf.size(),
+    //       &msg_rx_addr, &sinfo, &data.msg_flags);
+    
+    // std::array<char, NI_MAXHOST> ip_addr;
+    // int                          port;
+    // if (not srsran::getnameinfo(msg_rx_addr.sa, sizeof(ogs_sockaddr_t), ip_addr, port)) {
+    //     logger.error("Socket get name error");
+    // }
+    // printf("******************** sctp_network_server_impl::receive ********************, host=%s, serv=%d\n", ip_addr.data(), port);
+
     if (rx_bytes < 0) {
       if (errno != EAGAIN) {
         logger.error("Recv error: {}", strerror(errno));
@@ -134,16 +147,35 @@ public:
 
   bool send_data(const std::vector<uint8_t>& bytes, int ppid, const sockaddr& dest_addr, socklen_t dest_addrlen)
   {
-    int bytes_sent = ::sctp_sendmsg(socket.fd().value(),
-                                    bytes.data(),
-                                    bytes.size(),
-                                    (struct sockaddr*)&dest_addr,
-                                    dest_addrlen,
-                                    htonl(ppid),
-                                    0,
-                                    0,
-                                    0,
-                                    0);
+    // int bytes_sent = ::sctp_sendmsg(socket.fd().value(),
+    //                                 bytes.data(),
+    //                                 bytes.size(),
+    //                                 (struct sockaddr*)&dest_addr,
+    //                                 dest_addrlen,
+    //                                 htonl(ppid),
+    //                                 0,
+    //                                 0,
+    //                                 0,
+    //                                 0);
+    std::array<char, NI_MAXHOST> ip_addr;
+    int                          port;
+    if (not srsran::getnameinfo(dest_addr, dest_addrlen, ip_addr, port)) {
+      return;
+    }
+    printf("============ Sending PDU in sctp_network_server_impl to host=%s, serv=%d of bytes %lu =============, \n", ip_addr.data(), port, bytes.size());
+
+    ogs_sockaddr_t *addr;
+    ogs_getaddrinfo(&addr, dest_addr.sa_family, ip_addr.data(), port, 0);
+  
+    ogs_sock_t                    fd_sock;
+    fd_sock.fd = socket.fd().value();
+
+    int bytes_sent = ogs_sctp_sendmsg(&fd_sock, 
+                                  bytes.data(),
+                                  bytes.size(),
+                                  addr, 
+                                  htonl(ppid), 
+                                  0);
     return bytes_sent == (int)bytes.size();
   }
 
@@ -159,20 +191,39 @@ public:
   bool send_eof(int ppid, const sockaddr& dest_addr, socklen_t dest_addrlen)
   {
     // Send EOF to SCTP server.
-    int bytes_sent = sctp_sendmsg(socket.fd().value(),
+    // int bytes_sent = sctp_sendmsg(socket.fd().value(),
+    //                               nullptr,
+    //                               0,
+    //                               const_cast<struct sockaddr*>(&dest_addr),
+    //                               dest_addrlen,
+    //                               htonl(ppid),
+    //                               SCTP_EOF,
+    //                               0,
+    //                               0,
+    //                               0);
+    std::array<char, NI_MAXHOST> ip_addr;
+    int                          port;
+    if (not srsran::getnameinfo(dest_addr, dest_addrlen, ip_addr, port)) {
+      return;
+    }
+    printf("============ Sending PDU in sctp_network_server_impl to host=%s, serv=%d of bytes %lu =============, \n", ip_addr.data(), port, 0);
+
+    ogs_sockaddr_t *addr;
+    ogs_getaddrinfo(&addr, dest_addr.sa_family, ip_addr.data(), port, 0);
+  
+    ogs_sock_t                    fd_sock;
+    fd_sock.fd = socket.fd().value();
+    // to be updated to add SCTP_EOF flag field
+    int bytes_sent = ogs_sctp_sendmsg(&fd_sock, 
                                   nullptr,
                                   0,
-                                  const_cast<struct sockaddr*>(&dest_addr),
-                                  dest_addrlen,
-                                  htonl(ppid),
-                                  SCTP_EOF,
-                                  0,
-                                  0,
+                                  addr, 
+                                  htonl(ppid), 
                                   0);
     return bytes_sent != -1;
   }
 
-  sctp_socket           socket;
+  sctp_socket_ogs       socket;
   std::string           name;
   srslog::basic_logger& logger;
 };

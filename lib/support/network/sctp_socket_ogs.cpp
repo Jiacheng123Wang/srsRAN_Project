@@ -26,6 +26,12 @@
 #include "srsran/support/error_handling.h"
 #include "srsran/support/io/sockets.h"
 #include "srsran/support/srsran_assert.h"
+#ifdef __linux__
+#include <netinet/sctp.h>
+#endif
+#ifdef __APPLE__
+#include <usrsctp.h>
+#endif
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
